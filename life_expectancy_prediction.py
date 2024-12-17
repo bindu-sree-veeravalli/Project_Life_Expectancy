@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Life Expectancy Prediction Analysis
-
-This script performs data preprocessing, exploratory data analysis (EDA),
-OLS regression, and logistic regression using the Life Expectancy dataset.
-"""
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,93 +7,173 @@ from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, confus
 from sklearn.model_selection import train_test_split
 
 # Load the dataset
-file_path = "updated_life_expectancy_data.csv"  # Replace with your dataset filename
-try:
-    df = pd.read_csv(file_path)
-    print(f"Dataset loaded successfully with {df.shape[0]} rows and {df.shape[1]} columns.")
-except FileNotFoundError:
-    print("Error: Dataset not found. Ensure 'updated_life_expectancy_data.csv' is in the same directory.")
-    exit()
+file_path = 'updated_life_expectancy_data.csv'  # Replace with your file path
+df = pd.read_csv(file_path)
 
-# Handle missing values using median imputation
-for col in df.columns[df.isna().any()]:
+# Display first few rows
+df.head()
+
+# Data Preprocessing
+df.columns[df.isna().any()].tolist()
+
+pd.isnull(df).sum()
+
+# Check data types and basic statistics
+print(df.info())
+print(df.describe())
+
+# Fill missing values using median imputation
+for col in df.columns[df.isna().any()].tolist():
     median_val = df[col].median()
     df[col].fillna(median_val, inplace=True)
 
-# Convert 'Status' column to binary encoding (Developed=1, Developing=0)
-if 'Status' in df.columns:
-    df['Status'] = df['Status'].map({'Developed': 1, 'Developing': 0})
+# Explore distributions of key variables
+plt.figure(figsize=(12, 6))
+sns.histplot(df['Life expectancy '], kde=True)
+plt.title('Distribution of Life Expectancy')
+plt.show()
 
-# Define independent and dependent variables
-X = df.drop(['Life expectancy '], axis=1, errors='ignore')  # Drop target column
+# Analyze relationships between variables
+correlation_cols = ['Year', 'Life expectancy ', 'Adult Mortality',
+       'infant deaths', 'Alcohol', 'percentage expenditure', 'Hepatitis B',
+       'Measles ', ' BMI ', 'under-five deaths ', 'Polio', 'Total expenditure',
+       'Diphtheria ', ' HIV/AIDS', 'GDP', 'Population',
+       ' thinness  1-19 years', ' thinness 5-9 years',
+       'Income composition of resources', 'Schooling',]
+
+plt.figure(figsize=(10, 10))
+sns.heatmap(df[correlation_cols].corr(), annot=True, cmap='coolwarm', fmt=".2f")
+plt.title('Correlation Matrix')
+plt.show()
+
+# Plot histograms for all columns
+for col in correlation_cols:
+    plt.figure(figsize=(8, 6))
+    sns.histplot(df[col], kde=True)
+    plt.title(f'Distribution of {col}')
+    plt.xlabel(col)
+    plt.ylabel('Frequency')
+    plt.show()
+
+# Drop rows with missing values (optional step)
+df = df.dropna()  # You can remove this if you want to use imputation instead
+
+# Define independent variables (X) and dependent variables (Y)
+X = df.drop(['Life expectancy ', 'Life_expectancy_category'], axis=1)  # Drop target columns
 y_continuous = df['Life expectancy ']  # For OLS
-y_binary = (y_continuous >= y_continuous.median()).astype(int)  # For Logit (binary classification)
+y_binary = df['Life_expectancy_category'].apply(lambda x: 1 if x == 'High' else 0)  # For Logit
 
-# Add a constant for regression models
+# Add a constant to the independent variables (for intercept)
 X = sm.add_constant(X)
 
-# --- OLS Regression ---
-print("\n--- OLS Regression ---")
+# Convert 'Status' column to 0 and 1 (Label encoding)
+X['Status'] = X['Status'].map({'Developed': 1, 'Developing': 0})
+
+# Ensure X and y_continuous are numeric
+X = X.apply(pd.to_numeric, errors='coerce')
+
+# Drop rows with missing values
+X = X.dropna()
+y_continuous = y_continuous[X.index]  # Align y_continuous with X
+
+# Fit OLS model
 ols_model = sm.OLS(y_continuous, X).fit()
+
+# Print OLS summary
 print(ols_model.summary())
 
-# Calculate OLS metrics
+# Predict with OLS model
 y_pred_ols = ols_model.predict(X)
+
+# Calculate RMSE and R-squared
 rmse_ols = np.sqrt(mean_squared_error(y_continuous, y_pred_ols))
 r2_ols = r2_score(y_continuous, y_pred_ols)
-print(f"OLS RMSE: {rmse_ols:.2f}, R-squared: {r2_ols:.2f}")
 
-# --- Logistic Regression ---
-print("\n--- Logistic Regression ---")
+print(f"OLS RMSE: {rmse_ols}")
+print(f"OLS R-squared: {r2_ols}")
+
+# Logit Regression (for binary classification)
 logit_model = sm.Logit(y_binary, X).fit()
+
+# Print Logit summary
 print(logit_model.summary())
 
-# Calculate Logistic Regression metrics
+# Predict with Logit model
 y_pred_logit = logit_model.predict(X)
-y_pred_class = (y_pred_logit >= 0.5).astype(int)
-accuracy_logit = accuracy_score(y_binary, y_pred_class)
-conf_matrix = confusion_matrix(y_binary, y_pred_class)
-print(f"Logit Accuracy: {accuracy_logit:.2f}")
-print("Confusion Matrix:")
-print(conf_matrix)
+y_pred_logit_class = (y_pred_logit >= 0.5).astype(int)  # Convert probabilities to binary classification
 
-# --- Visualizations ---
-def plot_ols_results(y_true, y_pred):
-    """Scatter plot of actual vs predicted values and residuals."""
-    plt.figure(figsize=(12, 6))
-    sns.scatterplot(x=y_true, y=y_pred, alpha=0.6, color='blue')
-    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'r--', label='Perfect Fit')
-    plt.xlabel('Actual Life Expectancy')
-    plt.ylabel('Predicted Life Expectancy')
-    plt.title('OLS: Actual vs Predicted')
-    plt.legend()
-    plt.show()
+# Calculate accuracy
+accuracy_logit = accuracy_score(y_binary, y_pred_logit_class)
+print(f"Logit Accuracy: {accuracy_logit}")
 
-    residuals = y_true - y_pred
-    plt.figure(figsize=(12, 6))
-    sns.scatterplot(x=y_pred, y=residuals, alpha=0.6, color='green')
-    plt.axhline(0, color='r', linestyle='--')
-    plt.xlabel('Predicted Values')
-    plt.ylabel('Residuals')
-    plt.title('OLS Residuals')
-    plt.show()
+# Confusion matrix
+conf_matrix = confusion_matrix(y_binary, y_pred_logit_class)
+print(f"Confusion Matrix:\n{conf_matrix}")
 
-def plot_logit_roc(y_true, y_pred_prob):
-    """ROC curve for logistic regression."""
-    fpr, tpr, _ = roc_curve(y_true, y_pred_prob)
-    roc_auc = auc(fpr, tpr)
-    plt.figure(figsize=(10, 6))
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Logistic Regression: ROC Curve')
-    plt.legend(loc="lower right")
-    plt.show()
+# Precision and Recall for Logit
+from sklearn.metrics import precision_score, recall_score
 
-plot_ols_results(y_continuous, y_pred_ols)
-plot_logit_roc(y_binary, y_pred_logit)
+precision_logit = precision_score(y_binary, y_pred_logit_class)
+recall_logit = recall_score(y_binary, y_pred_logit_class)
 
-# Save processed dataset (optional)
-df.to_csv("processed_life_expectancy_data.csv", index=False)
-print("Processed dataset saved as 'processed_life_expectancy_data.csv'.")
+print(f"Logit Precision: {precision_logit}")
+print(f"Logit Recall: {recall_logit}")
+
+# Visualizations for OLS
+
+# Scatterplot of "Predicted life expectancy vs Actual values"
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x=y_continuous, y=y_pred_ols, hue=y_continuous, alpha=0.6, palette='viridis')
+plt.plot([y_continuous.min(), y_continuous.max()], [y_continuous.min(), y_continuous.max()], 'r--', label='Perfect Fit')
+plt.xlabel('Actual Life Expectancy')
+plt.ylabel('Predicted Life Expectancy')
+plt.title('Predicted life expectancy with Actual Values')
+plt.legend()
+plt.xlim(0, max (max(y_continuous), max(y_pred_ols)))
+plt.ylim(0, max (max(y_continuous), max(y_pred_ols)))
+plt.show()
+
+# Residual plot for OLS
+residuals = y_continuous - y_pred_ols
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x=y_pred_ols, y=residuals, hue=y_continuous, alpha=0.6, palette='plasma')
+plt.axhline(0, color='r', linestyle='--')
+plt.xlabel('Predicted Values')
+plt.ylabel('Residuals')
+plt.title('Residual Plot')
+plt.show()
+
+# ROC Curve for Logit Regression
+fpr, tpr, _ = roc_curve(y_binary, y_pred_logit)
+roc_auc = auc(fpr, tpr)
+
+# Plotting ROC Curve
+plt.figure()
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend(loc="lower right")
+plt.show()
+
+# Confusion Matrix Visualization for Logit
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='coolwarm', xticklabels=['Stayed', 'Left'], yticklabels=['Stayed', 'Left'], cbar=False)
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Probability Distribution Visualization for Logit
+plt.figure(figsize=(10, 6))
+sns.histplot(y_pred_logit[y_binary == 1], color='blue', alpha=0.6, label='Actual Positive', kde=True)
+sns.histplot(y_pred_logit[y_binary == 0], color='red', alpha=0.6, label='Actual Negative', kde=True)
+plt.xlabel('Predicted Probability')
+plt.ylabel('Frequency')
+plt.title('Logistic Regression: Predicted Probability Distributions')
+plt.legend()
+plt.show()
+
